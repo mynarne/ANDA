@@ -1,0 +1,67 @@
+{
+  "relay": {
+    "paused": true,
+    "projects": {
+      "demo": {
+        "routes": {
+          "discord.input": {
+            "consent": true,
+            "visibility": "private",
+            "destinations": [
+              "notion"
+            ]
+          },
+          "discord.response": {
+            "consent": true,
+            "visibility": "private",
+            "destinations": [
+              "discord",
+              "notion"
+            ]
+          },
+          "notion.note": {
+            "consent": true,
+            "visibility": "private",
+            "destinations": [
+              "discord"
+            ]
+          },
+          "hook.user": {
+            "consent": true,
+            "visibility": "private",
+            "destinations": [
+              "notion"
+            ]
+          },
+          "hook.assistant": {
+            "consent": true,
+            "visibility": "private",
+            "destinations": [
+              "discord",
+              "notion"
+            ]
+          }
+        },
+        "hooks": {}
+      }
+    }
+  },
+  "intake": {
+    "discord": {
+      "enabled": false,
+      "project": "demo",
+      "prefix": "!anda ",
+      "mode": "prefix",
+      "owner_ids": [],
+      "bot_id": ""
+    },
+    "notion": {
+      "enabled": false,
+      "project": "demo",
+      "prefix": "!anda ",
+      "mode": "notes",
+      "page_id": "",
+      "user_ids": []
+    }
+  }
+}
