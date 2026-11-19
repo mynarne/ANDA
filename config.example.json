@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "projects": [
+    "demo"
+  ],
+  "destinations": {
+    "notion": {
+      "enabled": false,
+      "parent_page_id": "",
+      "token_env": "ANDA_NOTION_TOKEN",
+      "memory_page_id": ""
+    },
+    "discord": {
+      "enabled": false,
+      "channel_id": "",
+      "token_env": "ANDA_DISCORD_TOKEN"
+    }
+  },
+  "intake": {
+    "discord": {
+      "enabled": false,
+      "owner_ids": [],
+      "project": "demo",
+      "prefix": "!anda "
+    },
+    "notion": {
+      "enabled": false,
+      "page_id": "",
+      "user_ids": [],
+      "project": "demo",
+      "prefix": "!anda "
+    }
+  },
+  "provider": {
+    "name": "codex",
+    "enabled": false,
+    "timeout_seconds": 120,
+    "max_calls_per_day": 20
+  },
+  "retry": {
+    "max_attempts": 5,
+    "base_seconds": 30
+  }
+}
