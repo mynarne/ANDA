@@ -272,7 +272,7 @@ class Tests(unittest.TestCase):
         state=Path(self.tmp.name)/"cli-state"
         base=[sys.executable,str(ROOT/"scripts/anda.py"),"--home",str(state)]
         def run(args,input=""):
-            return subprocess.run(base+args,input=input,text=True,capture_output=True,check=False)
+            return subprocess.run(base+args,input=input,text=True, encoding="utf-8",capture_output=True,check=False)
         self.assertEqual(run(["init","--project","alpha"]).returncode,0)
         mcp=run(["mcp","--project","alpha"],"\n".join([
             json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}),
@@ -298,4 +298,82 @@ class Tests(unittest.TestCase):
         self.assertTrue((target/"SKILL.md").is_file())
         self.assertNotEqual(subprocess.run(cmd+["--apply"],capture_output=True).returncode,0)
         self.assertFalse((target/"config.json").exists())
+    def test_cli_stdio_is_utf8_and_hook_survives_large_payload(self):
+        # Windows pipes default to the ANSI code page (cp949/cp1252); hook and MCP peers read UTF-8.
+        env={k:v for k,v in os.environ.items() if k not in {"PYTHONUTF8","PYTHONIOENCODING"}}
+        base=[sys.executable,str(ROOT/"scripts/anda.py"),"--home",str(Path(self.tmp.name)/"utf8-state")]
+        def run(args,lines):
+            data="".join(json.dumps(x,ensure_ascii=False)+"\n" for x in lines).encode("utf-8")
+            return subprocess.run(base+args,input=data,capture_output=True,env=env,timeout=30)
+        self.assertEqual(run(["init","--project","alpha"],[]).returncode,0)
+        hook={"session_id":"s","hook_event_name":"UserPromptSubmit","prompt_id":"p1","prompt":"한글 메모 🚀"}
+        self.assertEqual(run(["hook","--project","alpha","--provider","claude"],[hook]).returncode,0)
+        # A pasted prompt beyond the 32000-byte text limit is clipped, and context is still injected.
+        native=run(["hook","--project","alpha","--provider","claude","--native"],[{**hook,"prompt_id":"p2","prompt":"가"*20000}])
+        self.assertIn("🚀",json.loads(native.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"])
+        mcp=run(["mcp","--project","alpha"],[
+            {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_context","arguments":{}}},
+            {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_put","arguments":{
+                "kind":"progress","key":"k","text":"t","source_event_id":"missing","operation_id":"o1"}}}])
+        rows=[json.loads(x) for x in mcp.stdout.decode("utf-8").splitlines()]
+        self.assertIn("🚀",rows[0]["result"]["content"][0]["text"])
+        # A failed tool call tells the agent why instead of a generic protocol error.
+        self.assertTrue(rows[1]["result"]["isError"])
+        self.assertIn("source event",rows[1]["result"]["content"][0]["text"])
+    def test_claude_prompt_id_is_stable_hook_identity(self):
+        p={"session_id":"c","hook_event_name":"UserPromptSubmit","prompt_id":"0b6c1d2e-prompt","prompt":"hello"}
+        self.assertFalse(capture_hook(self.l,"alpha","claude",p)["identity_generated"])
+        self.assertTrue(capture_hook(self.l,"alpha","claude",p)["duplicate"])
+        stop={**p,"hook_event_name":"Stop"}
+        self.assertTrue(capture_hook(self.l,"alpha","claude",{**stop,"last_assistant_message":"first answer"})["persisted"])
+        # A later Stop for the same prompt (e.g. after background work) is a new record, not an identity conflict.
+        self.assertTrue(capture_hook(self.l,"alpha","claude",{**stop,"last_assistant_message":"after background work"})["persisted"])
+        self.assertTrue(capture_hook(self.l,"alpha","claude",{**stop,"last_assistant_message":"first answer"})["duplicate"])
+        self.assertEqual(self.l.status()["events"],3)
+    def test_user_links_rejected_os_aliases_allowed(self):
+        from anda.core import private_dir
+        # Unresolved temp path on purpose: on macOS it sits under the root-owned /var alias.
+        base=Path(self.tmp.name);real=base/"real";real.mkdir();link=base/"link"
+        if os.name=="nt":
+            subprocess.run(["cmd","/c","mklink","/J",str(link),str(real)],check=True,capture_output=True)
+        else:
+            os.symlink(real,link)
+        with self.assertRaises(AndaError):private_dir(link/"state")
+        self.assertTrue(private_dir(real/"state").is_dir())
+    @unittest.skipIf(os.name=="nt","POSIX ownership rule")
+    def test_root_owned_alias_exempt_only_for_unprivileged_runs(self):
+        from anda.core import unsafe_link
+        aliases=[p for p in map(Path,["/var","/tmp","/etc","/bin","/lib","/sbin"]) if p.is_symlink() and p.lstat().st_uid==0]
+        if not aliases:self.skipTest("no root-owned OS alias on this host")
+        with patch("anda.core.os.geteuid",return_value=1000):self.assertFalse(unsafe_link(aliases[0]))
+        # Running as root, a user-made link is root-owned too, so nothing is exempt.
+        with patch("anda.core.os.geteuid",return_value=0):self.assertTrue(unsafe_link(aliases[0]))
+    def test_backup_inside_state_rejected_via_canonical_path(self):
+        from anda.backup import snapshot
+        # On macOS the state sits under /var; its /private/var spelling must still count as inside.
+        with self.assertRaises(AndaError):snapshot(self.l,self.l.home.resolve()/"snap")
+    def test_oversized_hook_text_is_redacted_before_clipping(self):
+        from anda.core import LIMIT
+        # The secret straddles the clip point: clipped first, only "sk-" + 7 chars would remain,
+        # too short for the redaction pattern.
+        text="word "*((LIMIT-130)//5)+"sk-"+"x"*40+" tail"*20
+        capture_hook(self.l,"alpha","claude",{"session_id":"c","hook_event_name":"UserPromptSubmit","prompt_id":"p-clip","prompt":text})
+        stored=self.l.db.execute("SELECT text FROM events WHERE source='claude'").fetchone()[0]
+        self.assertIn("ANDA excerpt",stored);self.assertNotIn("sk-x",stored)
+    def test_codex_stop_keeps_its_turn_identity(self):
+        capture_hook(self.l,"alpha","codex",{"session_id":"x","hook_event_name":"Stop","turn_id":"t9","last_assistant_message":"done"})
+        self.assertEqual(self.l.db.execute("SELECT source_id FROM events WHERE source='codex'").fetchone()[0],"t9:Stop")
+    def test_watch_worker_survives_a_failed_cycle(self):
+        import sqlite3
+        from contextlib import redirect_stderr, redirect_stdout
+        from anda import cli
+        (self.home/"config.json").write_text(json.dumps(self.cfg),encoding="utf-8")
+        if os.name!="nt":(self.home/"config.json").chmod(0o600)
+        out=io.StringIO()
+        with patch.object(cli,"deliver_one",side_effect=sqlite3.OperationalError("database is locked")), \
+             patch.object(cli.time,"sleep",side_effect=[None,KeyboardInterrupt]), \
+             redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code=cli.main(["--home",str(self.home),"worker","--live","--watch","--interval","30"])
+        self.assertEqual(code,130)
+        self.assertEqual([json.loads(x)["state"] for x in out.getvalue().splitlines()],["cycle_failed","cycle_failed"])
 if __name__=="__main__":unittest.main()

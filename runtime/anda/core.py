@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import time
 import uuid
 
@@ -44,9 +45,24 @@ class AndaError(Exception):
 def dumps(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
+NAME_SURROGATE = 0x20000000  # Windows reparse-tag bit for redirects: symlinks, junctions, WSL links
+
+def unsafe_link(path):
+    # User-made links can redirect private state. Root-owned OS aliases (macOS /var -> /private/var)
+    # cannot be planted by an unprivileged account, and Windows 8.3 short names are not links.
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    if os.name == "nt":
+        # OneDrive placeholders and other non-surrogate reparse points are not redirects.
+        return bool(getattr(info, "st_reparse_tag", 0) & NAME_SURROGATE)
+    # Running as root, any link the user makes is root-owned too, so nothing is exempt.
+    return stat.S_ISLNK(info.st_mode) and (info.st_uid != 0 or os.geteuid() == 0)
+
 def private_dir(path):
     path = Path(path).absolute()
-    if any(p.is_symlink() for p in [path, *path.parents]):
+    if any(unsafe_link(p) for p in [path, *path.parents]):
         raise AndaError("State directories must not contain symlinks")
     if path == Path(path.anchor) or len(path.parts) < 3:
         raise AndaError("Use a dedicated state directory")

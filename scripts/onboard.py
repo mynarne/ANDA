@@ -14,7 +14,7 @@ import warnings
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
 from anda.connectors import DeliveryError, Transport
-from anda.core import AndaError, Ledger, dumps, example_config, validate_config
+from anda.core import AndaError, Ledger, dumps, example_config, unsafe_link, validate_config
 
 SECRETS = {"notion": "ANDA_NOTION_TOKEN", "discord": "ANDA_DISCORD_TOKEN"}
 SNOW = r"[1-9][0-9]{16,21}"
@@ -73,7 +73,7 @@ def prepare_scope(spec, browser_owner, run_home, enable_codex=False):
          "owner", "Supply the intended human Discord username (not a display name), or user ID.")
     home = Path(run_home).expanduser()
     need(home.is_absolute() and not home.is_symlink() and len(home.parts) >= 3
-         and '..' not in home.parts and not home.exists() and not any(p.is_symlink() for p in home.parents) and safe_destination(home),
+         and '..' not in home.parts and not home.exists() and not any(unsafe_link(p) for p in home.parents) and safe_destination(home),
          "state_path", "Choose a new absolute dedicated ANDA state directory.")
     return {"project": project, "notion_page": page, "discord_channel": chan, "discord_guild": guild,
             "discord_bot": bot, "owner_selector": browser_owner, "enable_codex": enable_codex, "home": home}
@@ -160,14 +160,15 @@ def check(scope, secrets, transport=None):
 
 
 def safe_destination(home):
-    return (not home.is_relative_to(Path(__file__).resolve().parents[1])
-            and os.path.normcase(str(home.resolve(strict=False))) == os.path.normcase(str(home)))
+    # Callers reject links with unsafe_link first, so resolve() only canonicalizes OS aliases
+    # (macOS /var -> /private/var, Windows 8.3 short names) before the package check.
+    return not home.resolve(strict=False).is_relative_to(Path(__file__).resolve().parents[1])
 
 
 def local_config(scope, proof):
     home = scope["home"]
     # Revalidate after network preflight. Never open or reuse an existing state.
-    need(not home.exists() and not home.is_symlink() and not any(p.is_symlink() for p in home.parents) and safe_destination(home),
+    need(not home.exists() and not home.is_symlink() and not any(unsafe_link(p) for p in home.parents) and safe_destination(home),
          "state_path", "The state path changed or already exists. Nothing was overwritten.")
     cfg = example_config(scope["project"])
     cfg["destinations"]["notion"].update(enabled=True, parent_page_id=proof["notion_page"])

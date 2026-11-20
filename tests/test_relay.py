@@ -178,7 +178,7 @@ class RelayTests(unittest.TestCase):
             {"id": 4, "method": "tools/call", "params": {"name": "memory_record", "arguments": {}}},
         ]
         out = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "anda.py"), "--home", str(self.home),
-                              "mcp", "--project", "demo"], check=True, capture_output=True, text=True,
+                              "mcp", "--project", "demo"], check=True, capture_output=True, text=True, encoding="utf-8",
                              input="".join(json.dumps({"jsonrpc": "2.0", **item}) + "\n" for item in messages))
         listed, first, second, write = map(json.loads, out.stdout.splitlines())
         self.assertNotIn("memory_record", {tool["name"] for tool in listed["result"]["tools"]})
@@ -188,6 +188,15 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(json.loads(second["result"]["content"][0]["text"])["events"][0]["text"], "second edit")
         self.assertIn("error", write)
         self.assertEqual(self.ledger.changes("other")["events"], [])
+
+    def test_claude_hooks_use_prompt_id(self):
+        base = {"cwd": self.temp.name, "session_id": "synthetic-session", "prompt_id": "0f3e2a1b-prompt"}
+        prompt = {**base, "hook_event_name": "UserPromptSubmit", "prompt": "visible claude request"}
+        final = {**base, "hook_event_name": "Stop", "last_assistant_message": "visible claude answer"}
+        for payload in (prompt, final):
+            self.assertTrue(capture_hook(self.ledger, "demo", "claude", payload)["persisted"])
+            self.assertTrue(capture_hook(self.ledger, "demo", "claude", payload)["duplicate"])
+        self.assertFalse(capture_hook(self.ledger, "demo", "claude", {**final, "stop_hook_active": True})["persisted"])
 
     def test_visible_hook_scope_pause_and_replay(self):
         payload = {"cwd": self.temp.name, "session_id": "synthetic-session", "turn_id": "turn-1",

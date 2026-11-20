@@ -5,14 +5,16 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
-from .core import AndaError, dumps
+from .core import AndaError, dumps, unsafe_link
 
 def snapshot(ledger, target):
     target = Path(target).absolute()
-    if target.exists() or any(x.is_symlink() for x in [target, *target.parents]):
+    if target.exists() or any(unsafe_link(x) for x in [target, *target.parents]):
         raise AndaError("Backup target must be new and contain no symlink components")
     package = Path(__file__).resolve().parents[2]
-    if target == package or package in target.parents or target == ledger.home or ledger.home in target.parents:
+    # Compare canonical paths: /var/x and /private/var/x (macOS) name the same folder.
+    real, home = target.resolve(strict=False), ledger.home.resolve()
+    if real == package or package in real.parents or real == home or home in real.parents:
         raise AndaError("Keep private backups outside the package and active state")
     if not target.parent.is_dir():
         raise AndaError("Backup parent must already exist")

@@ -167,7 +167,8 @@ def capture(ledger, project, provider, payload, event_id=None):
         phases = {"UserPromptSubmit": ("user", "prompt"), "Stop": ("assistant", "last_assistant_message")}
         phase = payload.get("hook_event_name")
         session = payload.get("session_id")
-        ident = payload.get("turn_id") if provider == "codex" else event_id
+        # Claude Code identifies each user prompt with prompt_id (v2.1.196+); it has no turn_id.
+        ident = payload.get("turn_id") if provider == "codex" else event_id or payload.get("prompt_id")
         if payload.get("stop_hook_active") is True:
             return {"state": "recursive_stop", "persisted": False}
     else:
@@ -180,8 +181,13 @@ def capture(ledger, project, provider, payload, event_id=None):
     if phase not in phases or not stable_id(ident):
         return {"state": "unsupported_or_missing_stable_id", "persisted": False}
     role, field = phases[phase]
-    result = record(ledger, project, "hook:" + provider, session, ident + ":" + phase,
-                    payload.get(field), "hook." + role, role=role)
+    text = payload.get(field)
+    source_id = ident + ":" + phase
+    if phase == "Stop" and provider == "claude" and not event_id and isinstance(text, str):
+        # One Claude prompt can end more than once (e.g. after background work); same text still
+        # deduplicates. Codex turn_id identities keep their 0.3.1 form.
+        source_id += ":" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    result = record(ledger, project, "hook:" + provider, session, source_id, text, "hook." + role, role=role)
     return {**result, "persisted": True} if result else {"state": "ignored", "persisted": False}
 
 

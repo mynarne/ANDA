@@ -32,7 +32,7 @@ python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" doctor
 ## 검증 범위
 
 - **Windows** — 비공개 통합 시험에서 허용된 Discord 일반 요청 한 건을 Notion에 기록하고, 로그인된 Codex의 응답을 Notion과 Discord 양쪽에서 확인했습니다. Notion의 직접 문단 한 건을 Discord로 전달했고, 승인된 Codex 훅 한 턴의 요청·응답도 각각 양쪽에서 다시 읽었습니다. 실제 수신은 총 8건이었고 원장을 다시 연 뒤 추가 중복 전송은 0건이었습니다. 별도 시험에서 읽기 전용 MCP 변경 커서도 확인했습니다. [Windows 검증 기록](VERIFICATION-RELAY.md)
-- **Claude·Gemini** — 범위를 지정한 MCP에서 이벤트 한 건을 읽는 경로를 확인했습니다. 두 클라이언트의 모델 실행과 네이티브 훅 수집은 이 기록의 검증 범위 밖입니다.
-- **macOS** — 격리된 복사 설치와 MCP stdio가 통과했습니다. 별도 Mac 시험 후보에서 합성 데이터의 수동 복구도 통과했습니다. 검증한 Mac 임시 경로 패치는 통합 대기 중입니다. macOS에서의 Notion·Discord 실제 전송과 승인된 Codex 네이티브 훅 한 턴은 미검증입니다.
+- **Claude·Gemini** — 범위를 지정한 MCP에서 이벤트 한 건을 읽는 경로를 확인했습니다. Windows의 Claude Code 2.1.322에서는 실제 턴 한 번으로 네이티브 훅(SessionStart·UserPromptSubmit·Stop)을 확인했습니다. 한글·이모지 메모리의 문맥 주입, 화면 표시 요청·응답 기록, `prompt_id` 공유 ID가 확인 대상이며 `scripts/verify_claude_hooks.py`로 재현합니다. Claude 모델 실행 어댑터와 Gemini 훅은 미검증입니다.
+- **macOS** — 격리된 복사 설치와 MCP stdio가 통과했습니다. 별도 Mac 시험 후보에서 합성 데이터의 수동 복구도 통과했습니다. Mac 임시 경로 패치가 통합됐고, CI(macos-latest)에서 전체 단위 테스트와 smoke가 통과합니다. macOS에서의 Notion·Discord 실제 전송과 승인된 Codex 네이티브 훅 한 턴은 미검증입니다.
 
 Linux, 무인 운영, 더 넓은 클라이언트 범위는 미검증입니다. [공개 조건](PUBLICATION.md)을 검토하는 동안 저장소를 비공개로 유지하세요.
