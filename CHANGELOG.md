@@ -1,5 +1,15 @@
 # 변경 이력 / Changelog
 
+## 0.3.2 relay draft — 2026-11-20 KST
+
+- Windows: CLI·훅·MCP 출력을 항상 UTF-8로 고정. 한국어 Windows(cp949)에서 한글이 깨지고, 이모지가 섞이면 훅 문맥 주입과 MCP가 실패하던 문제 수정.
+- Claude Code 훅: 프롬프트마다 오는 `prompt_id`를 안정 이벤트 ID로 사용. 릴레이 모드에서 Claude 훅이 기록되지 않던 문제와 일반 모드 중복 방지 누락 수정. 같은 프롬프트에 Stop이 여러 번 와도 ID 충돌 없이 기록.
+- 훅 입력을 1 MiB까지 허용. 32,000바이트를 넘는 본문은 표시된 발췌로 저장하고 문맥 주입은 계속 동작(이전에는 긴 붙여넣기 한 번에 훅 전체 실패).
+- MCP: 유효한 호출 안의 실패(리비전 충돌, 출처 이벤트 없음 등)를 사유와 함께 `isError` 결과로 반환. serverInfo 버전을 패키지 버전과 일치.
+- `worker --watch`: 한 주기의 예외(DB 잠금 등)로 종료되지 않고 다음 주기로 진행. 점유 중이던 항목은 기존대로 unknown → reconcile, 자동 재전송 없음.
+- macOS: `/var`→`/private/var` 같은 root 소유 시스템 링크를 허용(사용자 소유 링크는 계속 거부). macOS 실검증은 CI 결과로 확인 필요.
+- Windows·macOS·Linux GitHub Actions CI 추가. 총 95개 테스트.
+
 ## 0.3.1 relay draft — 2026-11-18 KST
 
 - 승인된 Discord 일반 입력, Notion 문단 미러, Codex 네이티브 훅의 프로젝트별 동의 및 라우팅.

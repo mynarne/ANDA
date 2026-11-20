@@ -181,7 +181,7 @@ class MemoryTests(unittest.TestCase):
             {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_put","arguments":{"kind":"preference","key":"language","text":"Inferred preference, needs user confirmation","source_event_id":self.source,"operation_id":"mcp-proposal"}}},
             {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memory_lookup","arguments":{}}},
         ]
-        result=subprocess.run(base,input="\n".join(json.dumps(m) for m in messages)+"\n",text=True,capture_output=True,timeout=15,check=True)
+        result=subprocess.run(base,input="\n".join(json.dumps(m) for m in messages)+"\n",text=True, encoding="utf-8",capture_output=True,timeout=15,check=True)
         rows=[json.loads(x) for x in result.stdout.splitlines()]
         saved=json.loads(rows[1]["result"]["content"][0]["text"])
         found=json.loads(rows[2]["result"]["content"][0]["text"])

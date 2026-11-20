@@ -44,9 +44,13 @@ class AndaError(Exception):
 def dumps(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
+def unsafe_link(path):
+    # Root-owned OS aliases (macOS /var -> /private/var, /tmp) cannot be planted by the user account.
+    return path.is_symlink() and (os.name == "nt" or path.lstat().st_uid != 0)
+
 def private_dir(path):
     path = Path(path).absolute()
-    if any(p.is_symlink() for p in [path, *path.parents]):
+    if any(unsafe_link(p) for p in [path, *path.parents]):
         raise AndaError("State directories must not contain symlinks")
     if path == Path(path.anchor) or len(path.parts) < 3:
         raise AndaError("Use a dedicated state directory")

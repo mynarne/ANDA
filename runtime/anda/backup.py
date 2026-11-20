@@ -5,11 +5,11 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
-from .core import AndaError, dumps
+from .core import AndaError, dumps, unsafe_link
 
 def snapshot(ledger, target):
     target = Path(target).absolute()
-    if target.exists() or any(x.is_symlink() for x in [target, *target.parents]):
+    if target.exists() or any(unsafe_link(x) for x in [target, *target.parents]):
         raise AndaError("Backup target must be new and contain no symlink components")
     package = Path(__file__).resolve().parents[2]
     if target == package or package in target.parents or target == ledger.home or ledger.home in target.parents:

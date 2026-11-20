@@ -92,7 +92,7 @@ def verify_mcp(home, project, marker, response):
     output = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "anda.py"), "--home", str(home), "mcp",
          "--project", project, "--agent", "acceptance-verifier"],
-        input="".join(json.dumps(item) + "\n" for item in requests), text=True,
+        input="".join(json.dumps(item) + "\n" for item in requests), text=True, encoding="utf-8",
         capture_output=True, check=True, timeout=20,
     )
     replies = [json.loads(line) for line in output.stdout.splitlines()]

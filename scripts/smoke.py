@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix="anda-smoke-") as tmp:
     state=Path(tmp)/"private-state"
     base=[sys.executable,str(root/"scripts/anda.py"),"--home",str(state)]
     def run(args,stdin=""):
-        result=subprocess.run(base+args,input=stdin,text=True,capture_output=True,timeout=15)
+        result=subprocess.run(base+args,input=stdin,text=True, encoding="utf-8",capture_output=True,timeout=15)
         if result.returncode:
             raise RuntimeError("Local subprocess failed: "+result.stderr)
         return result.stdout

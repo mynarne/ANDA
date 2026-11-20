@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -13,13 +14,15 @@ p.add_argument("--apply",action="store_true")
 a=p.parse_args()
 source=Path(__file__).resolve().parents[1]
 target=Path(a.target).expanduser().absolute()
-if target==source or source in target.parents or target.exists() or any(x.is_symlink() for x in [target,*target.parents]):
+# Same rule as anda.core.unsafe_link: root-owned OS aliases (macOS /var, /tmp) are allowed.
+unsafe=lambda x:x.is_symlink() and (os.name=="nt" or x.lstat().st_uid!=0)
+if target==source or source in target.parents or target.exists() or any(unsafe(x) for x in [target,*target.parents]):
     p.error("Use a new target outside the source with no symlink components")
 try:
     manifest=json.loads((source/"MANIFEST.json").read_text(encoding="utf-8"))
     for name,digest in manifest["files"].items():
         rel=Path(name)
-        if rel.is_absolute() or ".." in rel.parts or any(x.is_symlink() for x in [source/rel,*(source/rel).parents]):
+        if rel.is_absolute() or ".." in rel.parts or any(unsafe(x) for x in [source/rel,*(source/rel).parents]):
             raise ValueError("unsafe package entry")
         if hashlib.sha256((source/rel).read_bytes()).hexdigest()!=digest:
             raise ValueError("package hash mismatch")

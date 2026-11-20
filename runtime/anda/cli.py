@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -6,19 +7,22 @@ import shutil
 import sys
 import time
 import uuid
-from .core import AndaError, Ledger, dumps, example_config, load_config, private_dir
+from . import __version__
+from .core import AndaError, Ledger, dumps, example_config, load_config, private_dir, redact
 from .engine import deliver_one, reconcile, work_job, pull_discord, pull_notion
 from .connectors import Connectors
 
-def read_input(path):
+HOOK_PAYLOAD_LIMIT = 1 << 20  # Hook envelopes carry metadata and pasted prompts beyond the 32000-byte text limit.
+
+def read_input(path, limit=32000):
     if path == "-":
-        raw = sys.stdin.buffer.read(32001)
+        raw = sys.stdin.buffer.read(limit+1)
     else:
         p = Path(path)
-        if p.stat().st_size > 32000:
+        if p.stat().st_size > limit:
             raise AndaError("Input too large")
         raw = p.read_bytes()
-    if len(raw)>32000:
+    if len(raw)>limit:
         raise AndaError("Input too large")
     return raw.decode("utf-8")
 
@@ -92,9 +96,17 @@ def capture_hook(ledger,project,provider,payload,event_id=None):
     if not isinstance(text,str) or not text.strip():
         return {"state":"unsupported_or_empty","persisted":False,
                 "reason":"Only explicit visible text is ingested. Transcript files and reasoning are never read."}
-    stable=event_id or payload.get("turn_id") or payload.get("event_id") or payload.get("timestamp")
+    # Claude Code sends prompt_id (one UUID per user prompt) instead of turn_id.
+    stable=event_id or payload.get("turn_id") or payload.get("event_id") or payload.get("timestamp") or payload.get("prompt_id")
     generated=not bool(stable)
     ident=str(stable or uuid.uuid4())+":"+phase
+    if phase in {"Stop","SubagentStop"}:
+        # One prompt can end several (sub)agent turns; same text still deduplicates.
+        ident+=":"+hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    from .core import LIMIT, clipped
+    size=len(text.encode("utf-8"))
+    if size>LIMIT:
+        text=clipped(text,LIMIT-120)+"\n[ANDA excerpt: original "+str(size)+" UTF-8 bytes clipped to the ledger limit]"
     result=ledger.record(project,provider,session,ident,text,role=role)
     return {**result,"persisted":True,"identity_generated":generated}
 
@@ -161,7 +173,7 @@ def serve_mcp(ledger,project,agent="generic",probe_marker=None,probe_event_id=No
                 continue
             method=req.get("method");params=req.get("params",{})
             if method=="initialize":
-                result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"anda","version":"0.3.0"}}
+                result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"anda","version":__version__}}
             elif method=="ping":
                 result={}
             elif method=="tools/list":
@@ -171,32 +183,36 @@ def serve_mcp(ledger,project,agent="generic",probe_marker=None,probe_event_id=No
                 name=params.get("name")
                 if name not in names:
                     raise AndaError("Tool is unavailable for this session")
+                # Scope/argument checks stay JSON-RPC errors; failures inside a valid call
+                # (revision conflict, missing source event...) go back to the agent as isError results.
+                from .memory import history, lookup, put
                 if probe:
                     if name != "memory_context" or args != {"query": probe_marker}:
                         raise AndaError("MCP probe accepts only its exact synthetic query")
-                    rows = ledger.db.execute(
-                        "SELECT id, text, role FROM events WHERE project=? AND id=? AND kind='response'",
-                        (project, probe_event_id)).fetchall()
-                    value = {"project": project, "events": [dict(row) for row in rows
-                              if row["role"] == "assistant" and row["text"].strip() == probe_marker]}
+                    def run():
+                        rows = ledger.db.execute(
+                            "SELECT id, text, role FROM events WHERE project=? AND id=? AND kind='response'",
+                            (project, probe_event_id)).fetchall()
+                        return {"project": project, "events": [dict(row) for row in rows
+                                if row["role"] == "assistant" and row["text"].strip() == probe_marker]}
                 elif name == "relay_changes" and set(args) <= {"after", "limit"}:
-                    value = ledger.changes(project, args.get("after", 0), args.get("limit", 20))
+                    run=lambda: ledger.changes(project, args.get("after", 0), args.get("limit", 20))
                 elif name=="memory_lookup" and set(args)<= {"query"}:
-                    from .memory import lookup
-                    value=lookup(ledger,project,query=args.get("query",""))
+                    run=lambda: lookup(ledger,project,query=args.get("query",""))
                 elif name=="memory_history" and set(args)=={"kind","key"}:
-                    from .memory import history
-                    value=history(ledger,project,args["kind"],args["key"])
+                    run=lambda: history(ledger,project,args["kind"],args["key"])
                 elif name=="memory_put" and {"kind","key","text","source_event_id","operation_id"}<=set(args)<= {"kind","key","text","source_event_id","operation_id","expected_revision","expires_at"}:
-                    from .memory import put
-                    value=put(ledger,project,args["kind"],args["key"],args["text"],args["source_event_id"],args["operation_id"],expected_revision=args.get("expected_revision"),expires_at=args.get("expires_at"),status="proposed" if args["kind"] in {"decision","preference"} else "active")
+                    run=lambda: put(ledger,project,args["kind"],args["key"],args["text"],args["source_event_id"],args["operation_id"],expected_revision=args.get("expected_revision"),expires_at=args.get("expires_at"),status="proposed" if args["kind"] in {"decision","preference"} else "active")
                 elif name=="memory_context" and set(args)<= {"query"}:
-                    value=ledger.context(project,query=args.get("query",""))
+                    run=lambda: ledger.context(project,query=args.get("query",""))
                 elif name=="memory_record" and set(args)=={"conversation","event_id","text"}:
-                    value=ledger.record(project,"mcp:"+agent,args["conversation"],args["event_id"],args["text"],role="assistant")
+                    run=lambda: ledger.record(project,"mcp:"+agent,args["conversation"],args["event_id"],args["text"],role="assistant")
                 else:
                     raise AndaError("Unknown tool or out-of-scope arguments")
-                result={"content":[{"type":"text","text":dumps(value)}],"isError":False}
+                try:
+                    result={"content":[{"type":"text","text":dumps(run())}],"isError":False}
+                except AndaError as exc:
+                    result={"content":[{"type":"text","text":dumps({"state":"error","message":redact(str(exc))})}],"isError":True}
             else:
                 raise AndaError("Unsupported MCP method")
             response={"jsonrpc":"2.0","id":req["id"],"result":result}
@@ -205,6 +221,11 @@ def serve_mcp(ledger,project,agent="generic",probe_marker=None,probe_event_id=No
         print(dumps(response),flush=True)
 
 def main(argv=None):
+    # Hook and MCP peers read UTF-8. Windows pipes otherwise use the ANSI code page
+    # (cp949 on Korean Windows), corrupting Korean and failing outright on emoji.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     a=parser().parse_args(argv)
     ledger=None
     try:
@@ -270,7 +291,7 @@ def main(argv=None):
                 from .memory import history
                 result=history(ledger,a.project,a.kind,a.key,a.include_local)
             elif a.command=="hook":
-                payload=json.loads(read_input("-"))
+                payload=json.loads(read_input("-",HOOK_PAYLOAD_LIMIT))
                 result=capture_hook(ledger,a.project,a.provider,payload,a.event_id)
                 if a.native:result=native_hook_result(a.provider,payload,result,ledger,a.project)
             elif a.command=="mcp":
@@ -286,24 +307,31 @@ def main(argv=None):
                     ledger.recover()
                     if not 30<=a.interval<=3600:raise AndaError("Worker interval must be 30..3600 seconds")
                     while True:
-                        ledger.config = load_config(ledger.home)
-                        if ledger.config.get("relay", {}).get("paused"):
-                            result = {"state": "paused", "network_calls": False}
-                            break
-                        ledger.recover()
-                        connectors=Connectors(ledger.config)
-                        pulls={}
-                        for name,fn in [("discord",pull_discord),("notion",pull_notion)]:
-                            try:pulls[name]=fn(ledger,connectors)
-                            except (AndaError, KeyError, TypeError, ValueError, AttributeError):pulls[name]={"state":"blocked_or_failed"}
-                        if ("relay" not in ledger.config
-                                or pulls["discord"]["state"] in {"baseline", "pulled"}):
-                            work_job(ledger)
-                        reconcile(ledger,connectors)
-                        # Bounded batch; no tight unbounded polling.
-                        for _ in range(10):
-                            if not deliver_one(ledger,connectors):break
-                        result={"intake":pulls,**ledger.status()}
+                        try:
+                            ledger.config = load_config(ledger.home)
+                            if ledger.config.get("relay", {}).get("paused"):
+                                result = {"state": "paused", "network_calls": False}
+                                break
+                            ledger.recover()
+                            connectors=Connectors(ledger.config)
+                            pulls={}
+                            for name,fn in [("discord",pull_discord),("notion",pull_notion)]:
+                                try:pulls[name]=fn(ledger,connectors)
+                                except (AndaError, KeyError, TypeError, ValueError, AttributeError):pulls[name]={"state":"blocked_or_failed"}
+                            if ("relay" not in ledger.config
+                                    or pulls["discord"]["state"] in {"baseline", "pulled"}):
+                                work_job(ledger)
+                            reconcile(ledger,connectors)
+                            # Bounded batch; no tight unbounded polling.
+                            for _ in range(10):
+                                if not deliver_one(ledger,connectors):break
+                            result={"intake":pulls,**ledger.status()}
+                        except Exception as exc:
+                            # One bad cycle (locked DB, stale lease, config mid-edit) must not stop a
+                            # --watch worker. Claimed rows expire into 'unknown' and are reconciled, never replayed.
+                            if not a.watch:raise
+                            result={"state":"cycle_failed","type":type(exc).__name__,
+                                    "message":redact(str(exc)) if isinstance(exc,AndaError) else "Raw diagnostic details are suppressed"}
                         if not a.watch:break
                         print(dumps(result),flush=True);time.sleep(a.interval)
             elif a.command=="reconcile":
