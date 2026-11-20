@@ -19,6 +19,27 @@ python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" init --project d
 python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" doctor
 ~~~
 
+### 안내형 설정 (setup)
+
+마법사는 에이전트 터미널이 아니라 **사용자 본인의 터미널**에서 실행합니다. 비밀이 아닌 ID는 에이전트가 플래그로 미리 채워 줄 수 있습니다. 빠진 값은 실행 중에 묻고, 새 상태 경로면 초기화도 함께 합니다.
+
+~~~sh
+python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" setup --project demo \
+  --discord-app 앱_ID --discord-guild 서버_ID --owner-id 내_Discord_사용자_ID --notion-parent 페이지_링크
+~~~
+
+다음 세 가지는 공개 API가 없고 서비스마다 본인 로그인이 필요하므로 직접 합니다. Discord 앱·봇 만들기(Message Content Intent 켜기), Notion 내부 통합 만들기(콘텐츠 읽기·삽입) 및 상위 페이지에 연결하기, 출력된 봇 초대 링크에서 **승인(Authorize)** 누르기입니다. 초대 링크는 채널 보기, 메시지 보내기, 메시지 기록 보기 권한을 요청합니다. 비공개 채널을 만들 때만 필요한 채널 관리 권한도 함께 요청하며, 설정이 끝나면 봇 역할에서 빼도 됩니다.
+
+마법사가 하는 일은 다음과 같습니다.
+
+1. 토큰은 숨김 입력으로만 받습니다. 인자·파일·출력에는 남기지 않습니다.
+2. 봇, 서버 참여, 소유자, 상위 페이지를 읽기 전용 GET으로 확인합니다. 이미 설정된 목적지가 있으면 `doctor --live`도 실행합니다.
+3. 토큰을 Windows 자격 증명 관리자나 macOS 키체인에 저장합니다. 그 밖의 OS에서는 보호된 환경 변수 `ANDA_*_TOKEN`을 사용하세요. 설정 파일에는 변수 이름만 남습니다. 변수가 없으면 `doctor`·`worker`·`reconcile`이 저장소의 값을 읽습니다.
+4. `provision` 계획을 보여 주고, yes라고 답한 경우에만 `--apply`를 실행합니다.
+5. Claude Code 훅과 MCP 설정을 exec 형식으로 출력합니다. 한 번 더 승인하면 `<project>/.claude/settings.local.json`과 `<project>/.mcp.json`에 합쳐 씁니다. 전역 클라이언트 설정은 건드리지 않으며, Claude Code가 다음 실행 때 승인을 다시 묻습니다.
+
+검증은 따로 합니다. `doctor --live`와 `scripts/verify_claude_hooks.py --home 새_빈_폴더`를 실행하세요.
+
 승인한 경로를 설정한 뒤 `doctor --live`로 읽기 권한을 확인합니다. 실제 전송과 모델 실행은 각각 승인합니다. 첫 `worker --live`에서 기준점을 잡고, 새 합성 입력 한 건으로 제한된 실행을 한 뒤 예상 수신 기록을 다시 읽어 확인하세요. [첫 실행 안내](references/relay-first-run.md) · [실검증 절차](references/live-acceptance.ko.md)
 
 ## 각 경로에서 할 수 있는 일

@@ -41,6 +41,10 @@ def parser():
     t=sub.add_parser("provision");t.add_argument("--project",required=True);t.add_argument("--notion-parent",default="");t.add_argument("--notion-user-id",default="")
     t.add_argument("--discord-guild",default="");t.add_argument("--owner-id",default="");t.add_argument("--apply",action="store_true")
     d=sub.add_parser("doctor"); d.add_argument("--live",action="store_true")
+    s=sub.add_parser("setup",help="Interactive wizard for your own terminal; tokens only through hidden input")
+    s.add_argument("--project",required=True);s.add_argument("--discord-app",default="",help="Discord application ID (= bot user ID)")
+    s.add_argument("--discord-guild",default="");s.add_argument("--owner-id",default="");s.add_argument("--notion-parent",default="")
+    s.add_argument("--notion-user-id",default="");s.add_argument("--claude-project",default="",help="Claude Code project folder for project-local settings")
     for cmd in ("context","export"):
         x=sub.add_parser(cmd); x.add_argument("--project",required=True); x.add_argument("--query",default=""); x.add_argument("--limit",type=int,default=20)
     r=sub.add_parser("record")
@@ -232,7 +236,7 @@ def main(argv=None):
     a=parser().parse_args(argv)
     ledger=None
     try:
-        if a.command=="init":
+        if a.command=="init" or (a.command=="setup" and not (Path(a.home)/"config.json").exists()):
             cfg=example_config(a.project)
             from .core import validate_config
             validate_config(cfg)
@@ -244,8 +248,11 @@ def main(argv=None):
             if os.name!="nt":path.chmod(0o600)
             ledger=Ledger(home,cfg)
             result={"state":"initialized","home":str(home),"live":False}
-        else:
-            ledger=Ledger(a.home)
+        if a.command!="init":
+            ledger=ledger or Ledger(a.home)
+            if a.command in {"doctor","relay-check","provision","worker","reconcile"}:
+                from .credentials import load_env
+                load_env(ledger.config,every=a.command=="provision" and a.apply)
             if a.command=="status":result=ledger.status()
             elif a.command=="relay-check":
                 from .relay import setup_status
@@ -342,6 +349,9 @@ def main(argv=None):
                 ledger.recover();result=reconcile(ledger)
             elif a.command=="resolve":
                 ledger.resolve(a.id,a.receipt,a.confirmed_not_sent,a.evidence);result={"state":"resolved","id":a.id}
+            elif a.command=="setup":
+                from .setup import wizard
+                result=wizard(ledger,a.project,a.discord_app,a.discord_guild,a.owner_id,a.notion_parent,a.notion_user_id,a.claude_project)
             else:raise AndaError("Unknown command")
         print(dumps(result))
         if a.command == "doctor" and a.live:
