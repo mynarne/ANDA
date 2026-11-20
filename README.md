@@ -19,6 +19,27 @@ python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" init --project d
 python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" doctor
 ~~~
 
+### Guided setup
+
+Run the wizard in **your own terminal**, not the agent's. The agent can prepare the non-secret IDs as flags. Missing values are asked for, and the state is initialized if it is new.
+
+~~~sh
+python3 -B "$ANDA_PACKAGE/scripts/anda.py" --home "$ANDA_STATE" setup --project demo \
+  --discord-app APP_ID --discord-guild SERVER_ID --owner-id YOUR_DISCORD_USER_ID --notion-parent PAGE_LINK
+~~~
+
+Three steps stay with you, because no public API covers them and the services require your own sign-in: create the Discord app and bot (turn on Message Content Intent), create the Notion internal integration (read and insert content) and connect it to the parent page, and click **Authorize** on the printed bot invite. The invite asks for View Channel, Send Messages and Read Message History. It also asks for Manage Channels, which is needed only to create the private channel. You can remove it from the bot's role afterwards.
+
+The wizard then:
+
+1. Takes each token only through hidden input. Tokens never go in arguments, files or output.
+2. Runs read-only GET checks on the bot, server membership, owner and parent page, plus `doctor --live` for destinations already configured.
+3. Saves the tokens in Windows Credential Manager or the macOS Keychain. On other systems, keep `ANDA_*_TOKEN` in the protected environment. The config stores only those names, and `doctor`, `worker` and `reconcile` read the stored value when the variable is unset.
+4. Shows the `provision` plan and runs `--apply` only after you answer yes.
+5. Prints the exec-form Claude Code hooks and MCP entry. After a second yes, it merges them into `<project>/.claude/settings.local.json` and `<project>/.mcp.json`. Global client settings are never edited, and Claude Code still asks you to approve them.
+
+Then verify separately with `doctor --live` and `scripts/verify_claude_hooks.py --home NEW_EMPTY_DIR`.
+
 Configure the routes you approve. With approved credentials, use `doctor --live` to check reads. Authorize delivery and any model execution separately. The first `worker --live` pass sets the starting point. Use one new synthetic input, run a bounded pass, and read back the expected receipts. [First-run guide](references/relay-first-run.md) · [Live verification steps](references/live-acceptance.ko.md)
 
 ## What each route does
