@@ -10,6 +10,8 @@ Example command (replace paths; correctly quote spaces for your shell):
 python3 /absolute/skills/anda/scripts/anda.py --home /absolute/private/anda-state hook --project myproject --provider claude --native
 ~~~
 
+For Claude Code, prefer the exec form so no shell quoting applies on any OS: `{"type": "command", "command": "/absolute/python", "args": ["/absolute/skills/anda/scripts/anda.py", "--home", "/absolute/private/anda-state", "hook", "--project", "myproject", "--provider", "claude", "--native"]}`. `scripts/verify_claude_hooks.py --home <new path>` runs one real Claude Code turn (a small paid call) against a new synthetic state with only these hooks loaded, and passes when the injected context, the recorded prompt/answer and the shared `prompt_id` all check out.
+
 Use provider codex for Codex. Attach this command to SessionStart, UserPromptSubmit and Stop through each client's supported settings. SessionStart/UserPromptSubmit return hookSpecificOutput.additionalContext with hookEventName. Stop stores only last_assistant_message when explicitly provided. A Stop payload without final visible text is not archived. Claude Code has no turn_id; ANDA uses its per-prompt `prompt_id` (Claude Code v2.1.196+) as the stable identity, so no --event-id is needed. Stop identities also carry a digest of the final text, so a prompt that ends more than once records each distinct answer once.
 
 ## Gemini CLI

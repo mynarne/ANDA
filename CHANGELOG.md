@@ -9,6 +9,7 @@
 - `worker --watch`: 한 주기의 예외(DB 잠금 등)로 종료되지 않고 다음 주기로 진행. 점유 중이던 항목은 기존대로 unknown → reconcile, 자동 재전송 없음.
 - macOS: `/var`→`/private/var` 같은 root 소유 시스템 링크를 허용(사용자 소유 링크는 계속 거부). macOS 실검증은 CI 결과로 확인 필요.
 - Windows·macOS·Linux GitHub Actions CI 추가. 총 95개 테스트.
+- `scripts/verify_claude_hooks.py`: 실제 Claude Code 한 턴으로 네이티브 훅을 검증하는 스크립트. Windows·Claude Code 2.1.322·haiku에서 통과. 같은 시험을 수정 전(0.3.1) 코드로 돌리면 문맥 주입과 `prompt_id` 공유 ID 항목에서 실패.
 
 ## 0.3.1 relay draft — 2026-11-18 KST
 
