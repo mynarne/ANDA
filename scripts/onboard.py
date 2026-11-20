@@ -160,8 +160,9 @@ def check(scope, secrets, transport=None):
 
 
 def safe_destination(home):
-    return (not home.is_relative_to(Path(__file__).resolve().parents[1])
-            and os.path.normcase(str(home.resolve(strict=False))) == os.path.normcase(str(home)))
+    # Callers reject links with unsafe_link first, so resolve() only canonicalizes OS aliases
+    # (macOS /var -> /private/var, Windows 8.3 short names) before the package check.
+    return not home.resolve(strict=False).is_relative_to(Path(__file__).resolve().parents[1])
 
 
 def local_config(scope, proof):

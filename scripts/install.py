@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import tempfile
 
 p=argparse.ArgumentParser(description="Install the reviewed ANDA package to a new explicit target")
@@ -14,8 +15,12 @@ p.add_argument("--apply",action="store_true")
 a=p.parse_args()
 source=Path(__file__).resolve().parents[1]
 target=Path(a.target).expanduser().absolute()
-# Same rule as anda.core.unsafe_link: root-owned OS aliases (macOS /var, /tmp) are allowed.
-unsafe=lambda x:x.is_symlink() and (os.name=="nt" or x.lstat().st_uid!=0)
+def unsafe(x):
+    # Same rule as anda.core.unsafe_link (kept standalone: nothing is imported before hash checks).
+    try:info=os.lstat(x)
+    except OSError:return False
+    if os.name=="nt":return getattr(info,"st_reparse_tag",0) in {stat.IO_REPARSE_TAG_SYMLINK,stat.IO_REPARSE_TAG_MOUNT_POINT}
+    return stat.S_ISLNK(info.st_mode) and info.st_uid!=0
 if target==source or source in target.parents or target.exists() or any(unsafe(x) for x in [target,*target.parents]):
     p.error("Use a new target outside the source with no symlink components")
 try:

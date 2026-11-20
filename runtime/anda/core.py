@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import time
 import uuid
 
@@ -45,8 +46,16 @@ def dumps(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
 def unsafe_link(path):
-    # Root-owned OS aliases (macOS /var -> /private/var, /tmp) cannot be planted by the user account.
-    return path.is_symlink() and (os.name == "nt" or path.lstat().st_uid != 0)
+    # User-made links can redirect private state. Root-owned OS aliases (macOS /var -> /private/var)
+    # cannot be planted by the user account, and Windows 8.3 short names are not links.
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    if os.name == "nt":
+        # Symlinks and junctions; cloud-file reparse tags (OneDrive placeholders) are not redirects.
+        return getattr(info, "st_reparse_tag", 0) in {stat.IO_REPARSE_TAG_SYMLINK, stat.IO_REPARSE_TAG_MOUNT_POINT}
+    return stat.S_ISLNK(info.st_mode) and info.st_uid != 0
 
 def private_dir(path):
     path = Path(path).absolute()

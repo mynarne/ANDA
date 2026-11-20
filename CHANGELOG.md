@@ -7,7 +7,7 @@
 - 훅 입력을 1 MiB까지 허용. 32,000바이트를 넘는 본문은 표시된 발췌로 저장하고 문맥 주입은 계속 동작(이전에는 긴 붙여넣기 한 번에 훅 전체 실패).
 - MCP: 유효한 호출 안의 실패(리비전 충돌, 출처 이벤트 없음 등)를 사유와 함께 `isError` 결과로 반환. serverInfo 버전을 패키지 버전과 일치.
 - `worker --watch`: 한 주기의 예외(DB 잠금 등)로 종료되지 않고 다음 주기로 진행. 점유 중이던 항목은 기존대로 unknown → reconcile, 자동 재전송 없음.
-- macOS: `/var`→`/private/var` 같은 root 소유 시스템 링크를 허용(사용자 소유 링크는 계속 거부). macOS 실검증은 CI 결과로 확인 필요.
+- 경로 안전성: 사용자가 만든 심볼릭 링크와 Windows 정션(junction)은 거부하고, OS 별칭(macOS `/var`→`/private/var`, Windows 8.3 짧은 이름)은 허용. 이전에는 macOS 임시 경로와 Windows 짧은 경로에서 상태 폴더와 온보딩이 거부됐고, Windows 정션은 검사에서 빠져 있었음.
 - Windows·macOS·Linux GitHub Actions CI 추가. 총 95개 테스트.
 - `scripts/verify_claude_hooks.py`: 실제 Claude Code 한 턴으로 네이티브 훅을 검증하는 스크립트. Windows·Claude Code 2.1.322·haiku에서 통과. 같은 시험을 수정 전(0.3.1) 코드로 돌리면 문맥 주입과 `prompt_id` 공유 ID 항목에서 실패.
 

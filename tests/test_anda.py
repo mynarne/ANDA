@@ -330,6 +330,16 @@ class Tests(unittest.TestCase):
         self.assertTrue(capture_hook(self.l,"alpha","claude",{**stop,"last_assistant_message":"after background work"})["persisted"])
         self.assertTrue(capture_hook(self.l,"alpha","claude",{**stop,"last_assistant_message":"first answer"})["duplicate"])
         self.assertEqual(self.l.status()["events"],3)
+    def test_user_links_rejected_os_aliases_allowed(self):
+        from anda.core import private_dir
+        # Unresolved temp path on purpose: on macOS it sits under the root-owned /var alias.
+        base=Path(self.tmp.name);real=base/"real";real.mkdir();link=base/"link"
+        if os.name=="nt":
+            subprocess.run(["cmd","/c","mklink","/J",str(link),str(real)],check=True,capture_output=True)
+        else:
+            os.symlink(real,link)
+        with self.assertRaises(AndaError):private_dir(link/"state")
+        self.assertTrue(private_dir(real/"state").is_dir())
     def test_watch_worker_survives_a_failed_cycle(self):
         import sqlite3
         from contextlib import redirect_stderr, redirect_stdout
