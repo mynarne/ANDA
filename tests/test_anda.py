@@ -340,6 +340,29 @@ class Tests(unittest.TestCase):
             os.symlink(real,link)
         with self.assertRaises(AndaError):private_dir(link/"state")
         self.assertTrue(private_dir(real/"state").is_dir())
+    @unittest.skipIf(os.name=="nt","POSIX ownership rule")
+    def test_root_owned_alias_exempt_only_for_unprivileged_runs(self):
+        from anda.core import unsafe_link
+        aliases=[p for p in map(Path,["/var","/tmp","/etc","/bin","/lib","/sbin"]) if p.is_symlink() and p.lstat().st_uid==0]
+        if not aliases:self.skipTest("no root-owned OS alias on this host")
+        with patch("anda.core.os.geteuid",return_value=1000):self.assertFalse(unsafe_link(aliases[0]))
+        # Running as root, a user-made link is root-owned too, so nothing is exempt.
+        with patch("anda.core.os.geteuid",return_value=0):self.assertTrue(unsafe_link(aliases[0]))
+    def test_backup_inside_state_rejected_via_canonical_path(self):
+        from anda.backup import snapshot
+        # On macOS the state sits under /var; its /private/var spelling must still count as inside.
+        with self.assertRaises(AndaError):snapshot(self.l,self.l.home.resolve()/"snap")
+    def test_oversized_hook_text_is_redacted_before_clipping(self):
+        from anda.core import LIMIT
+        # The secret straddles the clip point: clipped first, only "sk-" + 7 chars would remain,
+        # too short for the redaction pattern.
+        text="word "*((LIMIT-130)//5)+"sk-"+"x"*40+" tail"*20
+        capture_hook(self.l,"alpha","claude",{"session_id":"c","hook_event_name":"UserPromptSubmit","prompt_id":"p-clip","prompt":text})
+        stored=self.l.db.execute("SELECT text FROM events WHERE source='claude'").fetchone()[0]
+        self.assertIn("ANDA excerpt",stored);self.assertNotIn("sk-x",stored)
+    def test_codex_stop_keeps_its_turn_identity(self):
+        capture_hook(self.l,"alpha","codex",{"session_id":"x","hook_event_name":"Stop","turn_id":"t9","last_assistant_message":"done"})
+        self.assertEqual(self.l.db.execute("SELECT source_id FROM events WHERE source='codex'").fetchone()[0],"t9:Stop")
     def test_watch_worker_survives_a_failed_cycle(self):
         import sqlite3
         from contextlib import redirect_stderr, redirect_stdout

@@ -19,9 +19,10 @@ def unsafe(x):
     # Same rule as anda.core.unsafe_link (kept standalone: nothing is imported before hash checks).
     try:info=os.lstat(x)
     except OSError:return False
-    if os.name=="nt":return getattr(info,"st_reparse_tag",0) in {stat.IO_REPARSE_TAG_SYMLINK,stat.IO_REPARSE_TAG_MOUNT_POINT}
-    return stat.S_ISLNK(info.st_mode) and info.st_uid!=0
-if target==source or source in target.parents or target.exists() or any(unsafe(x) for x in [target,*target.parents]):
+    if os.name=="nt":return bool(getattr(info,"st_reparse_tag",0)&0x20000000)
+    return stat.S_ISLNK(info.st_mode) and (info.st_uid!=0 or os.geteuid()==0)
+real=target.resolve(strict=False)  # containment must compare canonical paths once OS aliases are allowed
+if real==source or source in real.parents or target.exists() or any(unsafe(x) for x in [target,*target.parents]):
     p.error("Use a new target outside the source with no symlink components")
 try:
     manifest=json.loads((source/"MANIFEST.json").read_text(encoding="utf-8"))

@@ -45,17 +45,20 @@ class AndaError(Exception):
 def dumps(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
+NAME_SURROGATE = 0x20000000  # Windows reparse-tag bit for redirects: symlinks, junctions, WSL links
+
 def unsafe_link(path):
     # User-made links can redirect private state. Root-owned OS aliases (macOS /var -> /private/var)
-    # cannot be planted by the user account, and Windows 8.3 short names are not links.
+    # cannot be planted by an unprivileged account, and Windows 8.3 short names are not links.
     try:
         info = os.lstat(path)
     except OSError:
         return False
     if os.name == "nt":
-        # Symlinks and junctions; cloud-file reparse tags (OneDrive placeholders) are not redirects.
-        return getattr(info, "st_reparse_tag", 0) in {stat.IO_REPARSE_TAG_SYMLINK, stat.IO_REPARSE_TAG_MOUNT_POINT}
-    return stat.S_ISLNK(info.st_mode) and info.st_uid != 0
+        # OneDrive placeholders and other non-surrogate reparse points are not redirects.
+        return bool(getattr(info, "st_reparse_tag", 0) & NAME_SURROGATE)
+    # Running as root, any link the user makes is root-owned too, so nothing is exempt.
+    return stat.S_ISLNK(info.st_mode) and (info.st_uid != 0 or os.geteuid() == 0)
 
 def private_dir(path):
     path = Path(path).absolute()

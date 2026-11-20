@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "runtime"))
 from anda.core import AndaError, Ledger, dumps
 
 PROJECT = "hook-acceptance"
-# Korean and an emoji on purpose: Windows code pages (cp949/cp1252) used to break hook output.
+# Korean prompt and a Korean+emoji seed on purpose: Windows code pages (cp949/cp1252) used to break hook output.
 PROMPT = "ANDA 프로젝트 문맥에 있는 코드워드만 답하세요. 다른 말은 하지 마세요."
 
 
@@ -49,7 +49,9 @@ def verify(home, model, timeout):
                      "--project", PROJECT, "--provider", "claude", "--native"]}
     settings = {"hooks": {event: [{"hooks": [hook]}] for event in ("SessionStart", "UserPromptSubmit", "Stop")}}
     env = {k: v for k, v in os.environ.items() if not (k.startswith("ANDA_") and k.endswith(("_TOKEN", "_KEY")))}
-    with tempfile.TemporaryDirectory(prefix="claude-hooks-", dir=home) as work:
+    # Outside the private state. A timed-out Windows claude.cmd shim can leave node holding the
+    # folder; a failed cleanup must not hide the real result.
+    with tempfile.TemporaryDirectory(prefix="anda-claude-hooks-", ignore_cleanup_errors=True) as work:
         settings_file = Path(work) / "hooks.json"
         settings_file.write_text(json.dumps(settings), encoding="utf-8")
         # User/project settings stay out so only the hooks under test run.
@@ -66,7 +68,9 @@ def verify(home, model, timeout):
     try:
         final = json.loads(run.stdout.decode("utf-8"))
     except ValueError:
-        raise AndaError("Unrecognized Claude Code JSON result") from None
+        final = None
+    if not isinstance(final, dict):
+        raise AndaError("Unrecognized Claude Code JSON result")
     answer = str(final.get("result", "")).strip()
     ledger = Ledger(home)
     try:

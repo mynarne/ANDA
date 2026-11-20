@@ -183,8 +183,9 @@ def capture(ledger, project, provider, payload, event_id=None):
     role, field = phases[phase]
     text = payload.get(field)
     source_id = ident + ":" + phase
-    if phase == "Stop" and isinstance(text, str):
-        # One prompt can end more than once (e.g. after background work); same text still deduplicates.
+    if phase == "Stop" and provider == "claude" and not event_id and isinstance(text, str):
+        # One Claude prompt can end more than once (e.g. after background work); same text still
+        # deduplicates. Codex turn_id identities keep their 0.3.1 form.
         source_id += ":" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
     result = record(ledger, project, "hook:" + provider, session, source_id, text, "hook." + role, role=role)
     return {**result, "persisted": True} if result else {"state": "ignored", "persisted": False}

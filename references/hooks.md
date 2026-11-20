@@ -24,6 +24,8 @@ Use the scoped MCP tools to load and save memory. Grok passive hook stdout is ig
 
 ## Reliability
 
-Provide a stable --event-id when the host integration has one. Native turn_id, event_id, timestamp or Claude's prompt_id is used when present. Hook envelopes up to 1 MiB are accepted; visible text beyond the 32,000-byte ledger limit is stored as a marked excerpt (relay routes skip it instead), and context injection still runs. Hook and MCP output is UTF-8 on every platform, including Windows code pages such as cp949. Otherwise a generated identity is disclosed on stderr; source-level duplicate delivery cannot be guaranteed.
+Provide a stable --event-id when the host integration has one. Native turn_id, event_id, timestamp or Claude's prompt_id is used when present. Otherwise a generated identity is disclosed on stderr; source-level duplicate delivery cannot be guaranteed.
+
+Hook envelopes up to 1 MiB are accepted. Native hook text (not `anda.event.v1` envelopes, which must stay within 32,000 bytes) beyond the 32,000-byte ledger limit is redacted, then stored as a marked excerpt, and context injection still runs; relay routes skip such text instead. Hook and MCP output is UTF-8 on every platform, including Windows code pages such as cp949.
 
 A native hook storage failure emits a non-blocking warning and does not falsely claim it archived the turn. The regular envelope command returns an error for explicit operator use. Validate your client/version and simulated payload shape before enabling the hook. Full native client deployment and cross-platform acceptance are still pending.

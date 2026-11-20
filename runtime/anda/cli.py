@@ -96,17 +96,20 @@ def capture_hook(ledger,project,provider,payload,event_id=None):
     if not isinstance(text,str) or not text.strip():
         return {"state":"unsupported_or_empty","persisted":False,
                 "reason":"Only explicit visible text is ingested. Transcript files and reasoning are never read."}
+    native=event_id or payload.get("turn_id") or payload.get("event_id") or payload.get("timestamp")
     # Claude Code sends prompt_id (one UUID per user prompt) instead of turn_id.
-    stable=event_id or payload.get("turn_id") or payload.get("event_id") or payload.get("timestamp") or payload.get("prompt_id")
+    stable=native or payload.get("prompt_id")
     generated=not bool(stable)
     ident=str(stable or uuid.uuid4())+":"+phase
-    if phase in {"Stop","SubagentStop"}:
-        # One prompt can end several (sub)agent turns; same text still deduplicates.
+    if phase in {"Stop","SubagentStop"} and not native:
+        # One Claude prompt can end several (sub)agent turns; same text still deduplicates.
+        # Per-turn IDs (Codex turn_id) keep their 0.3.1 identity so old records still deduplicate.
         ident+=":"+hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
     from .core import LIMIT, clipped
     size=len(text.encode("utf-8"))
     if size>LIMIT:
-        text=clipped(text,LIMIT-120)+"\n[ANDA excerpt: original "+str(size)+" UTF-8 bytes clipped to the ledger limit]"
+        # Redact the whole text first: clipping can cut a secret short of its redaction pattern.
+        text=clipped(redact(text),LIMIT-120)+"\n[ANDA excerpt: original "+str(size)+" UTF-8 bytes clipped to the ledger limit]"
     result=ledger.record(project,provider,session,ident,text,role=role)
     return {**result,"persisted":True,"identity_generated":generated}
 
@@ -225,7 +228,7 @@ def main(argv=None):
     # (cp949 on Korean Windows), corrupting Korean and failing outright on emoji.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")
+            stream.reconfigure(encoding="utf-8", errors=stream.errors)
     a=parser().parse_args(argv)
     ledger=None
     try:
